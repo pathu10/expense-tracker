@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  database:
+    image: postgres:16
+    container_name: expense-tracker-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      # Exposed on the host only so students can connect with a DB client
+      # to inspect data; the backend talks to it over the internal network.
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - expense-tracker-network
+
+  backend:
+    build:
+      context: ./backend
+    container_name: expense-tracker-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # The backend must reach PostgreSQL using the Compose SERVICE NAME
+      # ("database"), never "localhost" — each container has its own
+      # network namespace, so localhost inside backend is the backend
+      # container itself, not the database container.
+      DB_HOST: database
+    ports:
+      - "5000:5000"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - expense-tracker-network
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+    container_name: expense-tracker-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - expense-tracker-network
+
+volumes:
+  db_data:
+
+networks:
+  expense-tracker-network:
+    driver: bridge
